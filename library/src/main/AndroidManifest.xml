@@ -3,5 +3,6 @@
     package="com.readystatesoftware.android.sqliteassethelper"
     android:versionCode="2"
     android:versionName="2.0" >
+    <uses-permission android:name="android.permission.INTERNET"/>
 
 </manifest>

@@ -21,7 +21,12 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.support.annotation.WorkerThread;
 import android.util.Log;
+
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.Response;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -74,6 +79,7 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
     private String mUpgradePathFormat;
 
     private int mForcedUpgradeVersion = 0;
+    private final OkHttpClient client = new OkHttpClient();
 
     /**
      * Create a helper object to create, open, and/or manage a database in
@@ -172,14 +178,8 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
 
         boolean success = false;
         SQLiteDatabase db = null;
-        //if (mDatabase != null) mDatabase.lock();
         try {
             mIsInitializing = true;
-            //if (mName == null) {
-            //    db = SQLiteDatabase.create(null);
-            //} else {
-            //    db = mContext.openOrCreateDatabase(mName, 0, mFactory);
-            //}
             db = createOrOpenDatabase(false);
 
             int version = db.getVersion();
@@ -221,11 +221,9 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
                         mDatabase.close();
                     } catch (Exception e) {
                     }
-                    //mDatabase.unlock();
                 }
                 mDatabase = db;
             } else {
-                //if (mDatabase != null) mDatabase.unlock();
                 if (db != null) {
                     db.close();
                 }
@@ -321,7 +319,6 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-
         Log.w(TAG, "Upgrading database " + mName + " from version " + oldVersion + " to " +
                 newVersion + "...");
 
@@ -343,7 +340,6 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
                 if (sql != null) {
                     List<String> cmds = Utils.splitSqlScript(sql, ';');
                     for (String cmd : cmds) {
-                        //Log.d(TAG, "cmd=" + cmd);
                         if (cmd.trim().length() > 0) {
                             db.execSQL(cmd);
                         }
@@ -370,30 +366,19 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
      *
      * @param version bypass upgrade up to this version number - should never be greater than the
      *                latest database version.
-     * @deprecated use {@link #setForcedUpgrade} instead.
-     */
-    @Deprecated
-    public void setForcedUpgradeVersion(int version) {
-        setForcedUpgrade(version);
-    }
-
-    /**
-     * Bypass the upgrade process (for each increment up to a given version) and simply
-     * overwrite the existing database with the supplied asset file.
-     *
-     * @param version bypass upgrade up to this version number - should never be greater than the
-     *                latest database version.
      */
     public void setForcedUpgrade(int version) {
         mForcedUpgradeVersion = version;
     }
 
-    /**
-     * Bypass the upgrade process for every version increment and simply overwrite the existing
-     * database with the supplied asset file.
-     */
-    public void setForcedUpgrade() {
-        setForcedUpgrade(mNewVersion);
+    @WorkerThread
+    public void forceUpgradeFromNetwork(String url) {
+        try {
+            copyDatabaseFromNetwork(url);
+        } catch (IOException e) {
+            Log.e(TAG, "could not copy new database version from the network", e);
+            return;
+        }
     }
 
     private SQLiteDatabase createOrOpenDatabase(boolean force) throws SQLiteAssetException {
@@ -405,7 +390,6 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
         if (file.exists()) {
             db = returnDatabase();
         }
-        //SQLiteDatabase db = returnDatabase();
 
         if (db != null) {
             // database already exists
@@ -433,6 +417,24 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
             Log.w(TAG, "could not open database " + mName + " - " + e.getMessage());
             return null;
         }
+    }
+
+    private void copyDatabaseFromNetwork(String networkUrl)
+            throws SQLiteAssetException, IOException {
+
+        Log.w(TAG, "copying database from network...\n" + networkUrl);
+        String dest = mDatabasePath + "/" + mName;
+
+        Request request = new Request.Builder()
+                .url(networkUrl)
+                .build();
+
+        Response response = client.newCall(request).execute();
+        if (!response.isSuccessful()) {
+            throw new IOException("Unexpected code " + response);
+        }
+
+        writeDatabaseFromInputStream(response.body().byteStream(), dest, false);
     }
 
     private void copyDatabaseFromAssets() throws SQLiteAssetException {
@@ -465,26 +467,31 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
             }
         }
 
+        writeDatabaseFromInputStream(is, dest, isZip);
+    }
+
+    private void writeDatabaseFromInputStream(InputStream inputStream,
+                                              String destination,
+                                              boolean isZip) {
         try {
             File f = new File(mDatabasePath + "/");
             if (!f.exists()) {
                 f.mkdir();
             }
             if (isZip) {
-                ZipInputStream zis = Utils.getFileFromZip(is);
+                ZipInputStream zis = Utils.getFileFromZip(inputStream);
                 if (zis == null) {
                     throw new SQLiteAssetException("Archive is missing a SQLite database file");
                 }
-                Utils.writeExtractedFileToDisk(zis, new FileOutputStream(dest));
+                Utils.writeExtractedFileToDisk(zis, new FileOutputStream(destination));
             } else {
-                Utils.writeExtractedFileToDisk(is, new FileOutputStream(dest));
+                Utils.writeExtractedFileToDisk(inputStream, new FileOutputStream(destination));
             }
 
             Log.w(TAG, "database copy complete");
-
         } catch (IOException e) {
-            SQLiteAssetException se = new SQLiteAssetException("Unable to write " + dest + " to " +
-                    "data directory");
+            SQLiteAssetException se = new SQLiteAssetException("Unable to write " + destination
+                    + " to " + "data directory");
             se.setStackTrace(e.getStackTrace());
             throw se;
         }
@@ -501,7 +508,6 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
     }
 
     private void getUpgradeFilePaths(int baseVersion, int start, int end, ArrayList<String> paths) {
-
         int a;
         int b;
 
@@ -512,7 +518,6 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
             //Log.d(TAG, "found script: " + path);
             a = start - 1;
             b = start;
-            is = null;
         } else {
             a = start - 1;
             b = end;
@@ -523,7 +528,6 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
         } else {
             getUpgradeFilePaths(baseVersion, a, b, paths); // recursive call
         }
-
     }
 
     /**
@@ -539,5 +543,4 @@ public class SQLiteAssetHelper extends SQLiteOpenHelper {
             super(error);
         }
     }
-
 }

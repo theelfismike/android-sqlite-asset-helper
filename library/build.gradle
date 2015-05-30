@@ -11,6 +11,11 @@ android {
     }
 
     defaultPublishConfig "release"
+
+    dependencies {
+        compile 'com.squareup.okhttp:okhttp:2.4.0'
+        compile 'com.android.support:support-annotations:22.2.0'
+    }
 }
 
 
