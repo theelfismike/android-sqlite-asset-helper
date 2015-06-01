@@ -31,5 +31,9 @@ android {
     dependencies {
         compile project(':library')
     }
+
+    lintOptions {
+        abortOnError false
+    }
 }
 

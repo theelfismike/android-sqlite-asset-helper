@@ -1,5 +1,3 @@
-import com.android.builder.core.BuilderConstants
-
 apply plugin: 'com.android.library'
 
 android {
@@ -12,16 +10,14 @@ android {
 
     defaultPublishConfig "release"
 
-    dependencies {
-        compile 'com.squareup.okhttp:okhttp:2.4.0'
-        compile 'com.android.support:support-annotations:22.2.0'
+    lintOptions {
+        abortOnError false
     }
 }
 
-
 android.libraryVariants.all { variant ->
     def name = variant.buildType.name
-    if (name.equals(BuilderConstants.DEBUG)) {
+    if (name.equals(com.android.builder.core.BuilderConstants.DEBUG)) {
         return; // Skip debug builds.
     }
     def task = project.tasks.create "jar${name.capitalize()}", Jar
@@ -31,3 +27,8 @@ android.libraryVariants.all { variant ->
 }
 
 apply from: 'https://raw.github.com/chrisbanes/gradle-mvn-push/master/gradle-mvn-push.gradle'
+
+dependencies {
+    compile 'com.squareup.okhttp:okhttp:2.4.0'
+    compile 'com.android.support:support-annotations:22.2.0'
+}
